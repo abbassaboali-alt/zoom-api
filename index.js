@@ -4,24 +4,21 @@ const cors = require("cors");
 
 const app = express();
 
-/* 🔥 حل مشكلة CORS */
-app.use(cors({
-  origin: "*"
-}));
-
+/* ===== CORS ===== */
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-/* 🔥 اختبار السيرفر */
+/* ===== Test ===== */
 app.get("/", (req, res) => {
   res.send("Zoom API is running 🚀");
 });
 
-/* ===== بيانات Zoom ===== */
+/* ===== Zoom Credentials ===== */
 const ACCOUNT_ID = "fNDPaV5xTWKeSeS4rojHuA";
 const CLIENT_ID = "vZchcwmtSVWBzxbXcthxxQ";
 const CLIENT_SECRET = "JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6";
 
-/* ===== جلب التوكن ===== */
+/* ===== Get Token ===== */
 async function getAccessToken() {
   const response = await axios.post(
     `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${ACCOUNT_ID}`,
@@ -38,7 +35,7 @@ async function getAccessToken() {
   return response.data.access_token;
 }
 
-/* ===== إنشاء اجتماع ===== */
+/* ===== Create Meeting ===== */
 app.post("/create-meeting", async (req, res) => {
   try {
 
@@ -66,11 +63,12 @@ app.post("/create-meeting", async (req, res) => {
     res.json({
       join_url: response.data.join_url,
       start_url: response.data.start_url,
+      meeting_id: response.data.id // 🔥 مهم
     });
 
   } catch (err) {
 
-    console.error("Zoom Error:", err.response?.data || err.message);
+    console.error("Zoom Create Error:", err.response?.data || err.message);
 
     res.status(500).json(
       err.response?.data || { error: err.message }
@@ -78,9 +76,43 @@ app.post("/create-meeting", async (req, res) => {
   }
 });
 
-/* ===== تشغيل السيرفر ===== */
+/* ===== Delete Meeting ===== */
+app.delete("/delete-meeting/:id", async (req, res) => {
+
+  try {
+
+    const meetingId = req.params.id;
+
+    const token = await getAccessToken();
+
+    await axios.delete(
+      `https://api.zoom.us/v2/meetings/${meetingId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    res.json({
+      success: true,
+      message: "Meeting deleted successfully"
+    });
+
+  } catch (err) {
+
+    console.error("Zoom Delete Error:", err.response?.data || err.message);
+
+    res.status(500).json(
+      err.response?.data || { error: err.message }
+    );
+  }
+
+});
+
+/* ===== Start Server ===== */
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
+  console.log("🚀 Server running on port " + PORT);
 });
