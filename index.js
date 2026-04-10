@@ -49,9 +49,12 @@ app.post("/create-meeting", async (req, res) => {
         start_time: req.body.start_time || new Date().toISOString(),
         duration: req.body.duration || 60,
         timezone: "Asia/Riyadh",
+
+        // 🔥 التعديل المهم
         settings: {
-          join_before_host: true,
+          join_before_host: false
         },
+
       },
       {
         headers: {
@@ -63,7 +66,7 @@ app.post("/create-meeting", async (req, res) => {
     res.json({
       join_url: response.data.join_url,
       start_url: response.data.start_url,
-      meeting_id: response.data.id // 🔥 مهم
+      meeting_id: response.data.id
     });
 
   } catch (err) {
@@ -85,8 +88,9 @@ app.delete("/delete-meeting/:id", async (req, res) => {
 
     const token = await getAccessToken();
 
+    // 🔥 حذف أقوى
     await axios.delete(
-      `https://api.zoom.us/v2/meetings/${meetingId}`,
+      `https://api.zoom.us/v2/meetings/${meetingId}?occurrence_id=`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -96,7 +100,7 @@ app.delete("/delete-meeting/:id", async (req, res) => {
 
     res.json({
       success: true,
-      message: "Meeting deleted successfully"
+      message: "Meeting deleted permanently"
     });
 
   } catch (err) {
