@@ -2,29 +2,29 @@ const express = require("express");
 const axios = require("axios");
 const admin = require("firebase-admin");
 const cloudinary = require("cloudinary").v2;
+const cors = require("cors");
 
 const app = express();
 app.use(express.json());
+app.use(cors());
 
-/* ================= Firebase ================= */
-const serviceAccount = require("./serviceAccount.json");
-
+/* ================= Firebase (ENV) ================= */
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_KEY))
 });
 
 const db = admin.firestore();
 
 /* ================= Zoom ================= */
-const ACCOUNT_ID = "fNDPaV5xTWKeSeS4rojHuA";
-const CLIENT_ID = "vZchcwmtSVWBzxbXcthxxQ";
-const CLIENT_SECRET = "JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6";
+const ACCOUNT_ID = fNDPaV5xTWKeSeS4rojHuA;
+const CLIENT_ID = vZchcwmtSVWBzxbXcthxxQ;
+const CLIENT_SECRET = JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6;
 
 /* ================= Cloudinary ================= */
 cloudinary.config({
-  cloud_name: "dgs6mo4hl",
-  api_key: "845894915521265",
-  api_secret: "lnrr8AjEQ5VCJmYcqIl2q9aGR4I"
+  cloud_name: dgs6mo4hl,
+  api_key: 845894915521265,
+  api_secret: lnrr8AjEQ5VCJmYcqIl2q9aGR4I
 });
 
 /* ================= Get Token ================= */
@@ -132,7 +132,7 @@ app.post("/sync-recordings", async (req, res) => {
   }
 });
 
-/* ================= Delete Meeting ================= */
+/* ================= Delete ================= */
 app.delete("/delete-meeting/:id", async (req, res) => {
   try {
     const token = await getAccessToken();
@@ -149,7 +149,13 @@ app.delete("/delete-meeting/:id", async (req, res) => {
   }
 });
 
+/* ================= Test ================= */
+app.get("/", (req, res) => {
+  res.send("Server is running 🚀");
+});
+
 /* ================= Start ================= */
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
 });
