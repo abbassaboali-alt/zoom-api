@@ -4,11 +4,14 @@ const cors = require("cors");
 
 const app = express();
 
-/* 🔥 CORS */
-app.use(cors({ origin: "*" }));
+/* 🔥 حل مشكلة CORS */
+app.use(cors({
+  origin: "*"
+}));
+
 app.use(express.json());
 
-/* 🔥 اختبار */
+/* 🔥 اختبار السيرفر */
 app.get("/", (req, res) => {
   res.send("Zoom API is running 🚀");
 });
@@ -60,11 +63,9 @@ app.post("/create-meeting", async (req, res) => {
       }
     );
 
-    /* 🔥 مهم: رجع ID */
     res.json({
       join_url: response.data.join_url,
       start_url: response.data.start_url,
-      id: response.data.id
     });
 
   } catch (err) {
@@ -77,29 +78,7 @@ app.post("/create-meeting", async (req, res) => {
   }
 });
 
-/* ===== حذف اجتماع ===== */
-app.delete("/delete-meeting/:id", async (req, res) => {
-  try {
-
-    const token = await getAccessToken();
-
-    await axios.delete(
-      `https://api.zoom.us/v2/meetings/${req.params.id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
-
-    res.json({ success: true });
-
-  } catch (err) {
-    res.status(500).json(err.response?.data || { error: err.message });
-  }
-});
-
-/* ===== تشغيل ===== */
+/* ===== تشغيل السيرفر ===== */
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
