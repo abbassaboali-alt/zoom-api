@@ -16,15 +16,15 @@ admin.initializeApp({
 const db = admin.firestore();
 
 /* ================= Zoom ================= */
-const ACCOUNT_ID = "YOUR_ACCOUNT_ID";
-const CLIENT_ID = "YOUR_CLIENT_ID";
-const CLIENT_SECRET = "YOUR_CLIENT_SECRET";
+const ACCOUNT_ID = "fNDPaV5xTWKeSeS4rojHuA";
+const CLIENT_ID = "vZchcwmtSVWBzxbXcthxxQ";
+const CLIENT_SECRET = "JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6";
 
 /* ================= Cloudinary ================= */
 cloudinary.config({
-  cloud_name: "YOUR_CLOUD_NAME",
-  api_key: "YOUR_API_KEY",
-  api_secret: "YOUR_API_SECRET"
+  cloud_name: "fNDPaV5xTWKeSeS4rojHuA",
+  api_key: "vZchcwmtSVWBzxbXcthxxQ",
+  api_secret: "JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6"
 });
 
 /* ================= Get Token ================= */
