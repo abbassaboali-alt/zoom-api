@@ -1,161 +1,86 @@
 const express = require("express");
 const axios = require("axios");
-const admin = require("firebase-admin");
-const cloudinary = require("cloudinary").v2;
 const cors = require("cors");
 
 const app = express();
+
+/* 🔥 حل مشكلة CORS */
+app.use(cors({
+  origin: "*"
+}));
+
 app.use(express.json());
-app.use(cors());
 
-/* ================= Firebase (ENV) ================= */
-admin.initializeApp({
-  credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_KEY))
+/* 🔥 اختبار السيرفر */
+app.get("/", (req, res) => {
+  res.send("Zoom API is running 🚀");
 });
 
-const db = admin.firestore();
+/* ===== بيانات Zoom ===== */
+const ACCOUNT_ID = "fNDPaV5xTWKeSeS4rojHuA";
+const CLIENT_ID = "vZchcwmtSVWBzxbXcthxxQ";
+const CLIENT_SECRET = "JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6";
 
-/* ================= Zoom ================= */
-const ACCOUNT_ID = fNDPaV5xTWKeSeS4rojHuA;
-const CLIENT_ID = vZchcwmtSVWBzxbXcthxxQ;
-const CLIENT_SECRET = JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6;
-
-/* ================= Cloudinary ================= */
-cloudinary.config({
-  cloud_name: dgs6mo4hl,
-  api_key: 845894915521265,
-  api_secret: lnrr8AjEQ5VCJmYcqIl2q9aGR4I
-});
-
-/* ================= Get Token ================= */
+/* ===== جلب التوكن ===== */
 async function getAccessToken() {
-  const url = `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${ACCOUNT_ID}`;
-
-  const res = await axios.post(url, null, {
-    headers: {
-      Authorization:
-        "Basic " +
-        Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")
+  const response = await axios.post(
+    `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${ACCOUNT_ID}`,
+    {},
+    {
+      headers: {
+        Authorization:
+          "Basic " +
+          Buffer.from(CLIENT_ID + ":" + CLIENT_SECRET).toString("base64"),
+      },
     }
-  });
+  );
 
-  return res.data.access_token;
+  return response.data.access_token;
 }
 
-/* ================= Create Meeting ================= */
+/* ===== إنشاء اجتماع ===== */
 app.post("/create-meeting", async (req, res) => {
   try {
+
     const token = await getAccessToken();
 
-    const zoomRes = await axios.post(
+    const response = await axios.post(
       "https://api.zoom.us/v2/users/me/meetings",
       {
-        topic: req.body.topic,
+        topic: req.body.topic || "Prudle Class",
         type: 2,
-        start_time: req.body.start_time,
+        start_time: req.body.start_time || new Date().toISOString(),
         duration: req.body.duration || 60,
         timezone: "Asia/Riyadh",
         settings: {
-          auto_recording: "cloud"
-        }
+          join_before_host: true,
+        },
       },
       {
         headers: {
-          Authorization: `Bearer ${token}`
-        }
+          Authorization: `Bearer ${token}`,
+        },
       }
     );
 
     res.json({
-      join_url: zoomRes.data.join_url,
-      start_url: zoomRes.data.start_url,
-      meeting_id: zoomRes.data.id
+      join_url: response.data.join_url,
+      start_url: response.data.start_url,
     });
 
-  } catch (e) {
-    console.error(e.response?.data || e.message);
-    res.status(500).json({ error: "Zoom create failed" });
-  }
-});
-
-/* ================= Sync Recordings ================= */
-app.post("/sync-recordings", async (req, res) => {
-  try {
-    const token = await getAccessToken();
-
-    const recordings = await axios.get(
-      "https://api.zoom.us/v2/users/me/recordings",
-      {
-        headers: { Authorization: `Bearer ${token}` }
-      }
-    );
-
-    for (const meeting of recordings.data.meetings) {
-
-      for (const file of meeting.recording_files || []) {
-
-        if (!file.download_url) continue;
-
-        const stream = await axios({
-          url: file.download_url,
-          method: "GET",
-          responseType: "stream",
-          headers: { Authorization: `Bearer ${token}` }
-        });
-
-        const upload = await new Promise((resolve, reject) => {
-          const up = cloudinary.uploader.upload_stream(
-            { resource_type: "video" },
-            (err, result) => {
-              if (err) reject(err);
-              else resolve(result);
-            }
-          );
-          stream.data.pipe(up);
-        });
-
-        await db.collection("videos").add({
-          courseId: meeting.topic,
-          title: "Zoom Recording",
-          url: upload.secure_url,
-          createdAt: new Date()
-        });
-
-      }
-    }
-
-    res.json({ success: true });
-
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Sync failed" });
-  }
-});
 
-/* ================= Delete ================= */
-app.delete("/delete-meeting/:id", async (req, res) => {
-  try {
-    const token = await getAccessToken();
+    console.error("Zoom Error:", err.response?.data || err.message);
 
-    await axios.delete(
-      `https://api.zoom.us/v2/meetings/${req.params.id}`,
-      { headers: { Authorization: `Bearer ${token}` } }
+    res.status(500).json(
+      err.response?.data || { error: err.message }
     );
-
-    res.json({ success: true });
-
-  } catch (e) {
-    res.status(500).json({ error: "Delete failed" });
   }
 });
 
-/* ================= Test ================= */
-app.get("/", (req, res) => {
-  res.send("Server is running 🚀");
-});
-
-/* ================= Start ================= */
+/* ===== تشغيل السيرفر ===== */
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
   console.log("Server running on port " + PORT);
 });
