@@ -1,122 +1,155 @@
 const express = require("express");
 const axios = require("axios");
-const cors = require("cors");
+const admin = require("firebase-admin");
+const cloudinary = require("cloudinary").v2;
 
 const app = express();
-
-/* ===== CORS ===== */
-app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-/* ===== Test ===== */
-app.get("/", (req, res) => {
-  res.send("Zoom API is running 🚀");
+/* ================= Firebase ================= */
+const serviceAccount = require("./serviceAccount.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
 });
 
-/* ===== Zoom Credentials ===== */
-const ACCOUNT_ID = "fNDPaV5xTWKeSeS4rojHuA";
-const CLIENT_ID = "vZchcwmtSVWBzxbXcthxxQ";
-const CLIENT_SECRET = "JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6";
+const db = admin.firestore();
 
-/* ===== Get Token ===== */
+/* ================= Zoom ================= */
+const ACCOUNT_ID = "YOUR_ACCOUNT_ID";
+const CLIENT_ID = "YOUR_CLIENT_ID";
+const CLIENT_SECRET = "YOUR_CLIENT_SECRET";
+
+/* ================= Cloudinary ================= */
+cloudinary.config({
+  cloud_name: "YOUR_CLOUD_NAME",
+  api_key: "YOUR_API_KEY",
+  api_secret: "YOUR_API_SECRET"
+});
+
+/* ================= Get Token ================= */
 async function getAccessToken() {
-  const response = await axios.post(
-    `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${ACCOUNT_ID}`,
-    {},
-    {
-      headers: {
-        Authorization:
-          "Basic " +
-          Buffer.from(CLIENT_ID + ":" + CLIENT_SECRET).toString("base64"),
-      },
-    }
-  );
+  const url = `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${ACCOUNT_ID}`;
 
-  return response.data.access_token;
+  const res = await axios.post(url, null, {
+    headers: {
+      Authorization:
+        "Basic " +
+        Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")
+    }
+  });
+
+  return res.data.access_token;
 }
 
-/* ===== Create Meeting ===== */
+/* ================= Create Meeting ================= */
 app.post("/create-meeting", async (req, res) => {
   try {
-
     const token = await getAccessToken();
 
-    const response = await axios.post(
+    const zoomRes = await axios.post(
       "https://api.zoom.us/v2/users/me/meetings",
       {
-        topic: req.body.topic || "Prudle Class",
+        topic: req.body.topic,
         type: 2,
-        start_time: req.body.start_time || new Date().toISOString(),
+        start_time: req.body.start_time,
         duration: req.body.duration || 60,
         timezone: "Asia/Riyadh",
-
-        // 🔥 التعديل المهم
         settings: {
-          join_before_host: false
-        },
-
+          auto_recording: "cloud"
+        }
       },
       {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+          Authorization: `Bearer ${token}`
+        }
       }
     );
 
     res.json({
-      join_url: response.data.join_url,
-      start_url: response.data.start_url,
-      meeting_id: response.data.id
+      join_url: zoomRes.data.join_url,
+      start_url: zoomRes.data.start_url,
+      meeting_id: zoomRes.data.id
     });
 
-  } catch (err) {
-
-    console.error("Zoom Create Error:", err.response?.data || err.message);
-
-    res.status(500).json(
-      err.response?.data || { error: err.message }
-    );
+  } catch (e) {
+    console.error(e.response?.data || e.message);
+    res.status(500).json({ error: "Zoom create failed" });
   }
 });
 
-/* ===== Delete Meeting ===== */
-app.delete("/delete-meeting/:id", async (req, res) => {
-
+/* ================= Sync Recordings ================= */
+app.post("/sync-recordings", async (req, res) => {
   try {
-
-    const meetingId = req.params.id;
-
     const token = await getAccessToken();
 
-    // 🔥 حذف أقوى
-    await axios.delete(
-      `https://api.zoom.us/v2/meetings/${meetingId}?occurrence_id=`,
+    const recordings = await axios.get(
+      "https://api.zoom.us/v2/users/me/recordings",
       {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` }
       }
     );
 
-    res.json({
-      success: true,
-      message: "Meeting deleted permanently"
-    });
+    for (const meeting of recordings.data.meetings) {
+
+      for (const file of meeting.recording_files || []) {
+
+        if (!file.download_url) continue;
+
+        const stream = await axios({
+          url: file.download_url,
+          method: "GET",
+          responseType: "stream",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        const upload = await new Promise((resolve, reject) => {
+          const up = cloudinary.uploader.upload_stream(
+            { resource_type: "video" },
+            (err, result) => {
+              if (err) reject(err);
+              else resolve(result);
+            }
+          );
+          stream.data.pipe(up);
+        });
+
+        await db.collection("videos").add({
+          courseId: meeting.topic,
+          title: "Zoom Recording",
+          url: upload.secure_url,
+          createdAt: new Date()
+        });
+
+      }
+    }
+
+    res.json({ success: true });
 
   } catch (err) {
-
-    console.error("Zoom Delete Error:", err.response?.data || err.message);
-
-    res.status(500).json(
-      err.response?.data || { error: err.message }
-    );
+    console.error(err);
+    res.status(500).json({ error: "Sync failed" });
   }
-
 });
 
-/* ===== Start Server ===== */
-const PORT = process.env.PORT || 3000;
+/* ================= Delete Meeting ================= */
+app.delete("/delete-meeting/:id", async (req, res) => {
+  try {
+    const token = await getAccessToken();
 
-app.listen(PORT, () => {
-  console.log("🚀 Server running on port " + PORT);
+    await axios.delete(
+      `https://api.zoom.us/v2/meetings/${req.params.id}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    res.json({ success: true });
+
+  } catch (e) {
+    res.status(500).json({ error: "Delete failed" });
+  }
+});
+
+/* ================= Start ================= */
+app.listen(3000, () => {
+  console.log("Server running on port 3000");
 });
