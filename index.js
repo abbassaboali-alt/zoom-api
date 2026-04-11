@@ -22,9 +22,9 @@ const CLIENT_SECRET = "JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6";
 
 /* ================= Cloudinary ================= */
 cloudinary.config({
-  cloud_name: "fNDPaV5xTWKeSeS4rojHuA",
-  api_key: "vZchcwmtSVWBzxbXcthxxQ",
-  api_secret: "JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6"
+  cloud_name: "dgs6mo4hl",
+  api_key: "845894915521265",
+  api_secret: "lnrr8AjEQ5VCJmYcqIl2q9aGR4I"
 });
 
 /* ================= Get Token ================= */
