@@ -1,118 +1,137 @@
 const express = require("express");
-const axios = require("axios");
 const cors = require("cors");
+const { google } = require("googleapis");
 
 const app = express();
 
-/* ===== CORS ===== */
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-/* ===== Test ===== */
+const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const REDIRECT_URI = process.env.REDIRECT_URI;
+
+const oauth2Client = new google.auth.OAuth2(
+  CLIENT_ID,
+  CLIENT_SECRET,
+  REDIRECT_URI
+);
+
+const TRAINER_TOKENS = {}; 
+// مؤقت فقط. لاحقاً نخزنه في Firebase
+
 app.get("/", (req, res) => {
-  res.send("Zoom API is running 🚀");
+  res.send("Prudle Google Meet API is running ✅");
 });
 
-/* ===== Zoom Credentials ===== */
-const ACCOUNT_ID = "fNDPaV5xTWKeSeS4rojHuA";
-const CLIENT_ID = "vZchcwmtSVWBzxbXcthxxQ";
-const CLIENT_SECRET = "JBDKJ5wda3mX0VyhUTVedbfxqT8bdrX6";
+/* ربط حساب Google */
+app.get("/google/connect", (req, res) => {
+  const trainer = req.query.trainer;
 
-/* ===== Get Token ===== */
-async function getAccessToken() {
-  const response = await axios.post(
-    `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${ACCOUNT_ID}`,
-    {},
-    {
-      headers: {
-        Authorization:
-          "Basic " +
-          Buffer.from(CLIENT_ID + ":" + CLIENT_SECRET).toString("base64"),
-      },
+  if (!trainer) {
+    return res.status(400).send("Missing trainer");
+  }
+
+  const url = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: ["https://www.googleapis.com/auth/calendar.events"],
+    state: trainer
+  });
+
+  res.redirect(url);
+});
+
+/* رجوع Google بعد الموافقة */
+app.get("/google/callback", async (req, res) => {
+  try {
+    const code = req.query.code;
+    const trainer = req.query.state;
+
+    if (!code || !trainer) {
+      return res.status(400).send("Missing code or trainer");
     }
-  );
 
-  return response.data.access_token;
-}
+    const { tokens } = await oauth2Client.getToken(code);
 
-/* ===== Create Meeting ===== */
-app.post("/create-meeting", async (req, res) => {
-  try {
+    TRAINER_TOKENS[trainer.toLowerCase()] = tokens;
 
-    const token = await getAccessToken();
-
-    const response = await axios.post(
-      "https://api.zoom.us/v2/users/me/meetings",
-      {
-        topic: req.body.topic || "Prudle Class",
-        type: 2,
-        start_time: req.body.start_time || new Date().toISOString(),
-        duration: req.body.duration || 60,
-        timezone: "Asia/Riyadh",
-        settings: {
-          join_before_host: true,
-        },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
-
-    res.json({
-      join_url: response.data.join_url,
-      start_url: response.data.start_url,
-      meeting_id: response.data.id // 🔥 مهم
-    });
+    res.send(`
+      <h2 style="font-family:Arial;text-align:center;margin-top:50px">
+        ✅ تم ربط حساب Google بنجاح<br>
+        يمكنك الرجوع إلى Prudle الآن
+      </h2>
+    `);
 
   } catch (err) {
-
-    console.error("Zoom Create Error:", err.response?.data || err.message);
-
-    res.status(500).json(
-      err.response?.data || { error: err.message }
-    );
+    console.error(err);
+    res.status(500).send("Google connection failed");
   }
 });
 
-/* ===== Delete Meeting ===== */
-app.delete("/delete-meeting/:id", async (req, res) => {
-
+/* إنشاء Google Meet */
+app.post("/create-meet", async (req, res) => {
   try {
+    const { trainer, topic, start_time, duration } = req.body;
 
-    const meetingId = req.params.id;
+    if (!trainer || !topic || !start_time) {
+      return res.status(400).json({ error: "Missing data" });
+    }
 
-    const token = await getAccessToken();
+    const tokens = TRAINER_TOKENS[trainer.toLowerCase()];
 
-    await axios.delete(
-      `https://api.zoom.us/v2/meetings/${meetingId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
+    if (!tokens) {
+      return res.status(400).json({
+        error: "Google account not connected"
+      });
+    }
+
+    oauth2Client.setCredentials(tokens);
+
+    const calendar = google.calendar({
+      version: "v3",
+      auth: oauth2Client
+    });
+
+    const start = new Date(start_time);
+    const end = new Date(start.getTime() + Number(duration || 60) * 60000);
+
+    const event = await calendar.events.insert({
+      calendarId: "primary",
+      conferenceDataVersion: 1,
+      requestBody: {
+        summary: topic,
+        start: {
+          dateTime: start.toISOString()
         },
+        end: {
+          dateTime: end.toISOString()
+        },
+        conferenceData: {
+          createRequest: {
+            requestId: Date.now().toString(),
+            conferenceSolutionKey: {
+              type: "hangoutsMeet"
+            }
+          }
+        }
       }
-    );
+    });
 
     res.json({
-      success: true,
-      message: "Meeting deleted successfully"
+      meetLink: event.data.hangoutLink,
+      eventId: event.data.id
     });
 
   } catch (err) {
-
-    console.error("Zoom Delete Error:", err.response?.data || err.message);
-
-    res.status(500).json(
-      err.response?.data || { error: err.message }
-    );
+    console.error(err);
+    res.status(500).json({
+      error: "Create meet failed",
+      details: err.message
+    });
   }
-
 });
 
-/* ===== Start Server ===== */
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log("🚀 Server running on port " + PORT);
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Server running");
 });
