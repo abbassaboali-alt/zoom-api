@@ -1,14 +1,13 @@
 {
-  "name": "zoom-api",
+  "name": "prudle-google-meet-api",
   "version": "1.0.0",
-  "description": "Zoom API server",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.6.0",
+    "cors": "^2.8.5",
     "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "googleapis": "^140.0.1"
   }
 }
