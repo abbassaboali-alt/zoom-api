@@ -17,8 +17,8 @@ const oauth2Client = new google.auth.OAuth2(
   REDIRECT_URI
 );
 
-const TRAINER_TOKENS = {}; 
-// مؤقت فقط. لاحقاً نخزنه في Firebase
+const TRAINER_TOKENS = {};
+// مؤقت فقط. إذا Render أعاد التشغيل، تحتاج تربط Google مرة ثانية
 
 app.get("/", (req, res) => {
   res.send("Prudle Google Meet API is running ✅");
@@ -26,7 +26,7 @@ app.get("/", (req, res) => {
 
 /* ربط حساب Google */
 app.get("/google/connect", (req, res) => {
-  const trainer = req.query.trainer;
+  const trainer = (req.query.trainer || "").toLowerCase().trim();
 
   if (!trainer) {
     return res.status(400).send("Missing trainer");
@@ -46,7 +46,7 @@ app.get("/google/connect", (req, res) => {
 app.get("/google/callback", async (req, res) => {
   try {
     const code = req.query.code;
-    const trainer = req.query.state;
+    const trainer = (req.query.state || "").toLowerCase().trim();
 
     if (!code || !trainer) {
       return res.status(400).send("Missing code or trainer");
@@ -54,7 +54,7 @@ app.get("/google/callback", async (req, res) => {
 
     const { tokens } = await oauth2Client.getToken(code);
 
-    TRAINER_TOKENS[trainer.toLowerCase()] = tokens;
+    TRAINER_TOKENS[trainer] = tokens;
 
     res.send(`
       <h2 style="font-family:Arial;text-align:center;margin-top:50px">
@@ -69,6 +69,30 @@ app.get("/google/callback", async (req, res) => {
   }
 });
 
+/* التحقق هل المدرب ربط حساب Google */
+app.get("/google/status", (req, res) => {
+  const trainer = (req.query.trainer || "").toLowerCase().trim();
+
+  if (!trainer) {
+    return res.status(400).json({
+      connected: false,
+      error: "Missing trainer"
+    });
+  }
+
+  const tokens = TRAINER_TOKENS[trainer];
+
+  if (!tokens) {
+    return res.json({
+      connected: false
+    });
+  }
+
+  return res.json({
+    connected: true
+  });
+});
+
 /* إنشاء Google Meet */
 app.post("/create-meet", async (req, res) => {
   try {
@@ -78,7 +102,9 @@ app.post("/create-meet", async (req, res) => {
       return res.status(400).json({ error: "Missing data" });
     }
 
-    const tokens = TRAINER_TOKENS[trainer.toLowerCase()];
+    const trainerKey = trainer.toLowerCase().trim();
+
+    const tokens = TRAINER_TOKENS[trainerKey];
 
     if (!tokens) {
       return res.status(400).json({
