@@ -18,6 +18,7 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 const TRAINER_TOKENS = {};
+const TRAINER_LINK_TIME = {};
 
 /* =========================
    TEST
@@ -39,25 +40,17 @@ app.get("/google/connect", (req, res) => {
       .trim();
 
   if(!trainer){
-    return res
-      .status(400)
-      .send("Missing trainer");
+    return res.status(400).send("Missing trainer");
   }
 
-  const url =
-    oauth2Client.generateAuthUrl({
-
-      access_type: "offline",
-
-      prompt: "consent select_account",
-
-      scope: [
-        "https://www.googleapis.com/auth/calendar.events"
-      ],
-
-      state: trainer
-
-    });
+  const url = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent select_account",
+    scope: [
+      "https://www.googleapis.com/auth/calendar.events"
+    ],
+    state: trainer
+  });
 
   res.redirect(url);
 
@@ -79,15 +72,13 @@ app.get("/google/callback", async (req, res) => {
         .trim();
 
     if(!code || !trainer){
-      return res
-        .status(400)
-        .send("Missing code or trainer");
+      return res.status(400).send("Missing code or trainer");
     }
 
-    const { tokens } =
-      await oauth2Client.getToken(code);
+    const { tokens } = await oauth2Client.getToken(code);
 
     TRAINER_TOKENS[trainer] = tokens;
+    TRAINER_LINK_TIME[trainer] = Date.now();
 
     res.send(`
       <div style="
@@ -97,6 +88,11 @@ app.get("/google/callback", async (req, res) => {
       ">
         <h2>✅ تم ربط حساب Google بنجاح</h2>
         <p>يمكنك الرجوع إلى Prudle الآن</p>
+        <script>
+          setTimeout(function(){
+            window.close();
+          }, 1500);
+        </script>
       </div>
     `);
 
@@ -104,9 +100,7 @@ app.get("/google/callback", async (req, res) => {
 
     console.error(err);
 
-    res
-      .status(500)
-      .send("Google connection failed");
+    res.status(500).send("Google connection failed");
 
   }
 
@@ -116,36 +110,73 @@ app.get("/google/callback", async (req, res) => {
    STATUS
 ========================= */
 
-app.get("/google/status", (req, res) => {
+app.get("/google/status", async (req, res) => {
 
   const trainer =
     (req.query.trainer || "")
       .toLowerCase()
       .trim();
 
-  if(!trainer){
+  const force =
+    req.query.force === "1";
 
+  if(!trainer){
     return res.status(400).json({
       connected:false,
+      valid:false,
       error:"Missing trainer"
     });
-
   }
 
-  const tokens =
-    TRAINER_TOKENS[trainer];
+  const tokens = TRAINER_TOKENS[trainer];
 
   if(!tokens){
+    return res.json({
+      connected:false,
+      valid:false
+    });
+  }
+
+  try{
+
+    oauth2Client.setCredentials(tokens);
+
+    await oauth2Client.getAccessToken();
+
+    TRAINER_TOKENS[trainer] = oauth2Client.credentials;
+
+    const linkTime =
+      TRAINER_LINK_TIME[trainer] || 0;
+
+    const recentlyLinked =
+      Date.now() - linkTime < 10 * 60 * 1000;
+
+    if(force && !recentlyLinked){
+      return res.json({
+        connected:false,
+        valid:false,
+        requireRelink:true
+      });
+    }
 
     return res.json({
-      connected:false
+      connected:true,
+      valid:true,
+      recentlyLinked:recentlyLinked
+    });
+
+  }catch(err){
+
+    delete TRAINER_TOKENS[trainer];
+    delete TRAINER_LINK_TIME[trainer];
+
+    return res.json({
+      connected:false,
+      valid:false,
+      error:"Google token expired"
     });
 
   }
-
-  return res.json({
-    connected:true
-  });
 
 });
 
@@ -164,33 +195,55 @@ app.post("/create-meet", async (req, res) => {
       duration
     } = req.body;
 
-    if(
-      !trainer ||
-      !topic ||
-      !start_time
-    ){
+    if(!trainer || !topic || !start_time){
       return res.status(400).json({
         error:"Missing data"
       });
     }
 
     const trainerKey =
-      trainer
-        .toLowerCase()
-        .trim();
+      trainer.toLowerCase().trim();
 
     const tokens =
       TRAINER_TOKENS[trainerKey];
 
     if(!tokens){
-
-      return res.status(400).json({
+      return res.status(401).json({
         error:"Google account not connected"
       });
+    }
 
+    const linkTime =
+      TRAINER_LINK_TIME[trainerKey] || 0;
+
+    const recentlyLinked =
+      Date.now() - linkTime < 10 * 60 * 1000;
+
+    if(!recentlyLinked){
+      return res.status(401).json({
+        error:"Please link Google account again"
+      });
     }
 
     oauth2Client.setCredentials(tokens);
+
+    try{
+
+      await oauth2Client.getAccessToken();
+
+      TRAINER_TOKENS[trainerKey] =
+        oauth2Client.credentials;
+
+    }catch(tokenErr){
+
+      delete TRAINER_TOKENS[trainerKey];
+      delete TRAINER_LINK_TIME[trainerKey];
+
+      return res.status(401).json({
+        error:"Google authorization expired"
+      });
+
+    }
 
     const calendar =
       google.calendar({
@@ -198,8 +251,7 @@ app.post("/create-meet", async (req, res) => {
         auth:oauth2Client
       });
 
-    const start =
-      new Date(start_time);
+    const start = new Date(start_time);
 
     const end =
       new Date(
@@ -209,46 +261,31 @@ app.post("/create-meet", async (req, res) => {
 
     const event =
       await calendar.events.insert({
-
         calendarId:"primary",
-
         conferenceDataVersion:1,
-
         requestBody:{
-
           summary:topic,
-
           start:{
             dateTime:start.toISOString()
           },
-
           end:{
             dateTime:end.toISOString()
           },
-
           conferenceData:{
             createRequest:{
               requestId:
-                Date.now().toString(),
-
+                trainerKey + "-" + Date.now(),
               conferenceSolutionKey:{
                 type:"hangoutsMeet"
               }
             }
           }
-
         }
-
       });
 
     res.json({
-
-      meetLink:
-        event.data.hangoutLink,
-
-      eventId:
-        event.data.id
-
+      meetLink:event.data.hangoutLink,
+      eventId:event.data.id
     });
 
   }catch(err){
@@ -256,11 +293,8 @@ app.post("/create-meet", async (req, res) => {
     console.error(err);
 
     res.status(500).json({
-
       error:"Create meet failed",
-
       details:err.message
-
     });
 
   }
